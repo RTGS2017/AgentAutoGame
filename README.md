@@ -1,5 +1,38 @@
 # AgentAutoGame 技术架构设计文档
 
+## 当前实现说明（2026-02-14）
+
+- 已按项目要求将 AUTO-MAS 后端源码复制到本仓库（见 `app/` 与 `main.py`）。
+- 已优先保留并可用两类能力：
+  - 非 MAA 代理脚本（General）管理能力。
+  - 任务规划能力（计划表 + 队列 + 定时 + 调度）。
+- 为方便 Agent 侧调用，额外提供了聚合接口（见 `app/api/agent.py`）：
+  - `POST /api/agent/script/add`：创建 MAA 或 General 脚本。
+  - `POST /api/agent/plan/add`：创建 MaaPlan 计划表。
+  - `POST /api/agent/planning/create`：一键创建任务规划（队列 + 脚本项 + 可选定时）。
+
+## 许可证调整
+
+- 由于后端代码直接复制自 GPL-3.0 项目 AUTO-MAS，本仓库许可证已调整为 GPL-3.0。
+- 详情见 `LICENSE` 与 `COPYRIGHT_NOTICE.md`。
+
+## 后端启动
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+## 文档索引
+
+- 后端落地与接口说明：`BACKEND_USAGE.md`
+- 许可证与版权说明：`LICENSE`、`COPYRIGHT_NOTICE.md`
+
+## 平台说明
+
+- 当前以后端 Windows 运行为优先目标。
+- 代码包含部分跨平台兼容处理，但不承诺 Linux 全量可用。
+
 ## 1. 项目概述
 
 ### 1.1 项目定位
