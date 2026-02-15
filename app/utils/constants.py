@@ -1,0 +1,712 @@
+#   AUTO-MAS: A Multi-Script, Multi-Config Management and Automation Software
+#   Copyright © 2024-2025 DLmaster361
+#   Copyright © 2025 ClozyA
+#   Copyright © 2025-2026 AUTO-MAS Team
+
+#   This file is part of AUTO-MAS.
+
+#   AUTO-MAS is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published
+#   by the Free Software Foundation, either version 3 of the License,
+#   or (at your option) any later version.
+
+#   AUTO-MAS is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty
+#   of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See
+#   the GNU General Public License for more details.
+
+#   You should have received a copy of the GNU General Public License
+#   along with AUTO-MAS. If not, see <https://www.gnu.org/licenses/>.
+
+#   Contact: DLmaster_361@163.com
+
+
+import re
+import os
+import sys
+import locale
+import subprocess
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+UTC4 = timezone(timedelta(hours=4))
+"""东4区时区对象"""
+
+UTC8 = timezone(timedelta(hours=8))
+"""东8区时区对象"""
+
+TYPE_BOOK = {"MaaConfig": "MAA", "GeneralConfig": "通用"}
+"""配置类型映射表"""
+
+MAA_RUN_MOOD_BOOK = {"Annihilation": "剿灭", "Routine": "日常"}
+"""MAA运行模式映射表"""
+
+MAA_TASKS = ["StartUp", "Fight", "Infrast", "Recruit", "Mall", "Award", "Roguelike"]
+"""MAA任务列表"""
+
+MAA_TASKS_ZH = [
+    "开始唤醒",
+    "理智作战",
+    "基建换班",
+    "自动公招",
+    "信用收支",
+    "领取奖励",
+    "自动肉鸽",
+]
+"""MAA任务列表"""
+
+MAA_STAGE_KEY = [
+    "MedicineNumb",
+    "SeriesNumb",
+    "Stage",
+    "Stage_1",
+    "Stage_2",
+    "Stage_3",
+    "Stage_Remain",
+]
+"""MAA关卡键表"""
+
+ARKNIGHTS_PACKAGE_NAME = {
+    "Official": "com.hypergryph.arknights",
+    "Bilibili": "com.hypergryph.arknights.bilibili",
+    "YoStarEN": "com.YoStarEN.Arknights",
+    "YoStarJP": "com.YoStarJP.Arknights",
+    "YoStarKR": "com.YoStarKR.Arknights",
+    "txwy": "tw.txwy.and.arknights",
+}
+"""明日方舟包名映射表"""
+
+MAA_TASK_TRANSITION_METHOD_BOOK = {
+    "NoAction": "8",
+    "ExitGame": "9",
+    "ExitEmulator": "9",
+}
+"""MAA任务切换方式映射表"""
+
+MAA_STARTUP_BASE = {
+    "$type": "StartUpTask",
+    "AccountName": "",
+    "Name": "开始唤醒",
+    "IsEnable": True,
+    "TaskType": "StartUp",
+}
+"""MAA开始唤醒基础配置"""
+
+MAA_ANNIHILATION_FIGHT_BASE = {
+    "$type": "FightTask",
+    "UseMedicine": False,
+    "MedicineCount": 0,
+    "UseStone": False,
+    "StoneCount": 0,
+    "EnableTargetDrop": False,
+    "DropId": "",
+    "DropCount": 0,
+    "EnableTimesLimit": False,
+    "TimesLimit": 999,
+    "Series": 0,
+    "StagePlan": ["Annihilation"],
+    "IsDrGrandet": False,
+    "UseExpiringMedicine": True,
+    "UseCustomAnnihilation": True,
+    "AnnihilationStage": "Annihilation",
+    "HideUnavailableStage": True,
+    "IsStageManually": False,
+    "UseOptionalStage": False,
+    "UseStoneAllowSave": False,
+    "HideSeries": False,
+    "UseWeeklySchedule": False,
+    "WeeklySchedule": {
+        "Sunday": True,
+        "Monday": True,
+        "Tuesday": True,
+        "Wednesday": True,
+        "Thursday": True,
+        "Friday": True,
+        "Saturday": True,
+    },
+    "Name": "剿灭作战",
+    "IsEnable": True,
+    "TaskType": "Fight",
+}
+"""MAA剿灭作战基础配置"""
+
+
+MAA_REMAIN_FIGHT_BASE = {
+    "$type": "FightTask",
+    "UseMedicine": False,
+    "MedicineCount": 0,
+    "UseStone": False,
+    "StoneCount": 0,
+    "EnableTargetDrop": False,
+    "DropId": "",
+    "DropCount": 0,
+    "EnableTimesLimit": False,
+    "TimesLimit": 999,
+    "Series": 0,
+    "StagePlan": [""],
+    "IsDrGrandet": False,
+    "UseExpiringMedicine": False,
+    "UseCustomAnnihilation": False,
+    "AnnihilationStage": "Annihilation",
+    "HideUnavailableStage": True,
+    "IsStageManually": True,
+    "UseOptionalStage": False,
+    "UseStoneAllowSave": False,
+    "HideSeries": False,
+    "UseWeeklySchedule": False,
+    "WeeklySchedule": {
+        "Sunday": True,
+        "Monday": True,
+        "Tuesday": True,
+        "Wednesday": True,
+        "Thursday": True,
+        "Friday": True,
+        "Saturday": True,
+    },
+    "Name": "剩余理智",
+    "IsEnable": True,
+    "TaskType": "Fight",
+}
+"""MAA剩余理智作战基础配置"""
+
+EMULATOR_PATH_BOOK = {
+    "mumu": {
+        "name": "MuMu模拟器",
+        "executables": ["MuMuManager.exe", "MuMuPlayer.exe"],
+        "registry_paths": [
+            r"SOFTWARE\NetEase\MuMu Player 12",
+            r"SOFTWARE\NetEase\MuMuPlayer-12.0",
+            r"SOFTWARE\NetEase\MuMu\nx_main",  # mumu5
+        ],
+        "default_paths": [
+            r"C:\Program Files\Netease\MuMu Player 12",
+            r"C:\Program Files (x86)\Netease\MuMu Player 12",
+            r"C:\Program Files\Netease\MuMu\nx_main",
+            r"C:\Program Files (x86)\Netease\MuMu Player 12",
+            (Path.home() / "AppData/Local/MuMu Player 12").as_posix(),
+        ],
+    },
+    "ldplayer": {
+        "name": "雷电模拟器",
+        "executables": ["ldconsole.exe", "LDPlayer.exe", "dnplayer.exe"],
+        "registry_paths": [r"SOFTWARE\ChangZhi", r"SOFTWARE\leidian\ldplayer"],
+        "default_paths": [
+            r"C:\LDPlayer\LDPlayer4.0",
+            r"C:\Program Files\LDPlayer",
+            r"D:\LDPlayer\LDPlayer4.0",
+        ],
+    },
+    "nox": {
+        "name": "夜神模拟器",
+        "executables": ["Nox.exe", "NoxVMHandle.exe"],
+        "registry_paths": [r"SOFTWARE\BigNox\VirtualBox"],
+        "default_paths": [
+            r"C:\Program Files\Nox\bin",
+            r"C:\Program Files (x86)\Nox\bin",
+            r"D:\Program Files\Nox\bin",
+        ],
+    },
+    "memu": {
+        "name": "逍遥模拟器",
+        "executables": ["MEmu.exe", "MemuManager.exe"],
+        "registry_paths": [r"SOFTWARE\Microvirt\MEmu"],
+        "default_paths": [
+            r"C:\Program Files\Microvirt\MEmu",
+            r"D:\Program Files\Microvirt\MEmu",
+        ],
+    },
+    "bluestacks": {
+        "name": "BlueStacks",
+        "executables": ["BlueStacks.exe", "HD-Player.exe"],
+        "registry_paths": [r"SOFTWARE\BlueStacks", r"SOFTWARE\BlueStacks_nxt"],
+        "default_paths": [
+            r"C:\Program Files\BlueStacks",
+            r"C:\Program Files\BlueStacks_nxt",
+        ],
+    },
+}
+"""模拟器文件常规路径信息"""
+
+RESOURCE_STAGE_INFO = [
+    {"value": "-", "text": "禁用", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"value": "*", "text": "当前/上次", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"value": "1-7", "text": "1-7", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"value": "R8-11", "text": "R8-11", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"value": "12-17-HARD", "text": "12-17-HARD", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"value": "LS-6", "text": "经验-6/5", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"value": "CE-6", "text": "龙门币-6/5", "days": [2, 4, 6, 7]},
+    {"value": "AP-5", "text": "红票-5", "days": [1, 4, 6, 7]},
+    {"value": "CA-5", "text": "技能-5", "days": [2, 3, 5, 7]},
+    {"value": "SK-5", "text": "碳-5", "days": [1, 3, 5, 6]},
+    {"value": "PR-A-1", "text": "奶/盾芯片", "days": [1, 4, 5, 7]},
+    {"value": "PR-A-2", "text": "奶/盾芯片组", "days": [1, 4, 5, 7]},
+    {"value": "PR-B-1", "text": "术/狙芯片", "days": [1, 2, 5, 6]},
+    {"value": "PR-B-2", "text": "术/狙芯片组", "days": [1, 2, 5, 6]},
+    {"value": "PR-C-1", "text": "先/辅芯片", "days": [3, 4, 6, 7]},
+    {"value": "PR-C-2", "text": "先/辅芯片组", "days": [3, 4, 6, 7]},
+    {"value": "PR-D-1", "text": "近/特芯片", "days": [2, 3, 6, 7]},
+    {"value": "PR-D-2", "text": "近/特芯片组", "days": [2, 3, 6, 7]},
+]
+"""常规资源关信息"""
+
+
+RESOURCE_STAGE_DATE_TEXT = {
+    "LS-6": "经验-6/5 | 常驻开放",
+    "CE-6": "龙门币-6/5 | 二四六日开放",
+    "AP-5": "红票-5 | 一四六日开放",
+    "CA-5": "技能-5 | 二三五日开放",
+    "SK-5": "碳-5 | 一三五六开放",
+    "PR-A-1": "奶/盾芯片 | 一四五日开放",
+    "PR-A-2": "奶/盾芯片组 | 一四五日开放",
+    "PR-B-1": "术/狙芯片 | 一二五六日开放",
+    "PR-B-2": "术/狙芯片组 | 一二五六日开放",
+    "PR-C-1": "先/辅芯片 | 三四六日开放",
+    "PR-C-2": "先/辅芯片组 | 三四六日开放",
+    "PR-D-1": "近/特芯片 | 二三六日开放",
+    "PR-D-2": "近/特芯片组 | 二三六日开放",
+}
+"""常规资源关开放日文本映射"""
+
+
+RESOURCE_STAGE_DROP_INFO = {
+    "CE-6": {
+        "Display": "CE-6",
+        "Value": "CE-6",
+        "Drop": "4001",
+        "DropName": "龙门币",
+        "Activity": {"Tip": "二四六日", "StageName": "资源关卡"},
+    },
+    "AP-5": {
+        "Display": "AP-5",
+        "Value": "AP-5",
+        "Drop": "4006",
+        "DropName": "采购凭证",
+        "Activity": {"Tip": "一四六日", "StageName": "资源关卡"},
+    },
+    "CA-5": {
+        "Display": "CA-5",
+        "Value": "CA-5",
+        "Drop": "3303",
+        "DropName": "技巧概要",
+        "Activity": {"Tip": "二三五日", "StageName": "资源关卡"},
+    },
+    "LS-6": {
+        "Display": "LS-6",
+        "Value": "LS-6",
+        "Drop": "2004",
+        "DropName": "作战记录",
+        "Activity": {"Tip": "常驻开放", "StageName": "资源关卡"},
+    },
+    "SK-5": {
+        "Display": "SK-5",
+        "Value": "SK-5",
+        "Drop": "3114",
+        "DropName": "碳素组",
+        "Activity": {"Tip": "一三五六", "StageName": "资源关卡"},
+    },
+    "PR-A-1": {
+        "Display": "PR-A",
+        "Value": "PR-A",
+        "Drop": "PR-A",
+        "DropName": "奶/盾芯片",
+        "Activity": {"Tip": "一四五日", "StageName": "资源关卡"},
+    },
+    "PR-B-1": {
+        "Display": "PR-B",
+        "Value": "PR-B",
+        "Drop": "PR-B",
+        "DropName": "术/狙芯片",
+        "Activity": {"Tip": "一二五六", "StageName": "资源关卡"},
+    },
+    "PR-C-1": {
+        "Display": "PR-C",
+        "Value": "PR-C",
+        "Drop": "PR-C",
+        "DropName": "先/辅芯片",
+        "Activity": {"Tip": "三四六日", "StageName": "资源关卡"},
+    },
+    "PR-D-1": {
+        "Display": "PR-D",
+        "Value": "PR-D",
+        "Drop": "PR-D",
+        "DropName": "近/特芯片",
+        "Activity": {"Tip": "二三六日", "StageName": "资源关卡"},
+    },
+}
+"""常规资源关掉落信息"""
+
+MATERIALS_MAP = {
+    "4001": "龙门币",
+    "4006": "采购凭证",
+    "2004": "高级作战记录",
+    "2003": "中级作战记录",
+    "2002": "初级作战记录",
+    "2001": "基础作战记录",
+    "3303": "技巧概要·卷3",
+    "3302": "技巧概要·卷2",
+    "3301": "技巧概要·卷1",
+    "30165": "重相位对映体",
+    "30155": "烧结核凝晶",
+    "30145": "晶体电子单元",
+    "30135": "D32钢",
+    "30125": "双极纳米片",
+    "30115": "聚合剂",
+    "31094": "手性屈光体",
+    "31093": "类凝结核",
+    "31084": "环烃预制体",
+    "31083": "环烃聚质",
+    "31074": "固化纤维板",
+    "31073": "褐素纤维",
+    "31064": "转质盐聚块",
+    "31063": "转质盐组",
+    "31054": "切削原液",
+    "31053": "化合切削液",
+    "31044": "精炼溶剂",
+    "31043": "半自然溶剂",
+    "31034": "晶体电路",
+    "31033": "晶体元件",
+    "31024": "炽合金块",
+    "31023": "炽合金",
+    "31014": "聚合凝胶",
+    "31013": "凝胶",
+    "30074": "白马醇",
+    "30073": "扭转醇",
+    "30084": "三水锰矿",
+    "30083": "轻锰矿",
+    "30094": "五水研磨石",
+    "30093": "研磨石",
+    "30104": "RMA70-24",
+    "30103": "RMA70-12",
+    "30014": "提纯源岩",
+    "30013": "固源岩组",
+    "30012": "固源岩",
+    "30011": "源岩",
+    "30064": "改量装置",
+    "30063": "全新装置",
+    "30062": "装置",
+    "30061": "破损装置",
+    "30034": "聚酸酯块",
+    "30033": "聚酸酯组",
+    "30032": "聚酸酯",
+    "30031": "酯原料",
+    "30024": "糖聚块",
+    "30023": "糖组",
+    "30022": "糖",
+    "30021": "代糖",
+    "30044": "异铁块",
+    "30043": "异铁组",
+    "30042": "异铁",
+    "30041": "异铁碎片",
+    "30054": "酮阵列",
+    "30053": "酮凝集组",
+    "30052": "酮凝集",
+    "30051": "双酮",
+    "3114": "碳素组",
+    "3113": "碳素",
+    "3112": "碳",
+    "3213": "先锋双芯片",
+    "3223": "近卫双芯片",
+    "3233": "重装双芯片",
+    "3243": "狙击双芯片",
+    "3253": "术师双芯片",
+    "3263": "医疗双芯片",
+    "3273": "辅助双芯片",
+    "3283": "特种双芯片",
+    "3212": "先锋芯片组",
+    "3222": "近卫芯片组",
+    "3232": "重装芯片组",
+    "3242": "狙击芯片组",
+    "3252": "术师芯片组",
+    "3262": "医疗芯片组",
+    "3272": "辅助芯片组",
+    "3282": "特种芯片组",
+    "3211": "先锋芯片",
+    "3221": "近卫芯片",
+    "3231": "重装芯片",
+    "3241": "狙击芯片",
+    "3251": "术师芯片",
+    "3261": "医疗芯片",
+    "3271": "辅助芯片",
+    "3281": "特种芯片",
+    "PR-A": "医疗/重装芯片",
+    "PR-B": "术师/狙击芯片",
+    "PR-C": "先锋/辅助芯片",
+    "PR-D": "近卫/特种芯片",
+}
+"""掉落物索引表"""
+
+
+TIME_FIELDS = {
+    "%Y": "year",
+    "%m": "month",
+    "%d": "day",
+    "%H": "hour",
+    "%M": "minute",
+    "%S": "second",
+    "%f": "microsecond",
+}
+"""时间字段映射表"""
+
+POWER_SIGN_MAP = {
+    "NoAction": "无动作",
+    "Shutdown": "关机",
+    "ShutdownForce": "强制关机",
+    "Reboot": "重启",
+    "Hibernate": "休眠",
+    "Sleep": "睡眠",
+    "KillSelf": "退出程序",
+}
+"""电源操作类型索引表"""
+
+RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+}
+"""Windows保留名称列表"""
+
+ILLEGAL_CHARS = set('<>:"/\\|?*')
+"""文件名非法字符集合"""
+
+MIRROR_ERROR_INFO = {
+    1001: "获取版本信息的URL参数不正确",
+    7001: "填入的 CDK 已过期",
+    7002: "填入的 CDK 错误",
+    7003: "填入的 CDK 今日下载次数已达上限",
+    7004: "填入的 CDK 类型和待下载的资源不匹配",
+    7005: "填入的 CDK 已被封禁",
+    8001: "对应架构和系统下的资源不存在",
+    8002: "错误的系统参数",
+    8003: "错误的架构参数",
+    8004: "错误的更新通道参数",
+    1: "未知错误类型",
+}
+"""MirrorChyan错误代码映射表"""
+
+DEFAULT_DATETIME = datetime.strptime("2000-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+"""默认日期时间"""
+
+
+SKLAND_SM_CONFIG = {
+    "organization": "UWXspnCCJN4sfYlNfqps",
+    "appId": "default",
+    "publicKey": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCmxMNr7n8ZeT0tE1R9j/mPixoinPkeM+k4VGIn/s0k7N5rJAfnZ0eMER+QhwFvshzo0LNmeUkpR8uIlU/GEVr8mN28sKmwd2gpygqj0ePnBmOW4v0ZVwbSYK+izkhVFk2V/doLoMbWy6b+UnA8mkjvg0iYWRByfRsK2gdl7llqCwIDAQAB",
+    "protocol": "https",
+    "apiHost": "fp-it.portal101.cn",
+    "apiPath": "/deviceprofile/v4",
+}
+"""数美科技配置"""
+
+BROWSER_ENV = {
+    "plugins": "MicrosoftEdgePDFPluginPortableDocumentFormatinternal-pdf-viewer1,MicrosoftEdgePDFViewermhjfbmdgcfjbbpaeojofohoefgiehjai1",
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+    "canvas": "259ffe69",  # 基于浏览器的canvas获得的值
+    "timezone": -480,  # 时区
+    "platform": "Win32",
+    "url": "https://www.skland.com/",  # 固定值
+    "referer": "",
+    "res": "1920_1080_24_1.25",  # 屏幕宽度_高度_色深_window.devicePixelRatio
+    "clientSize": "0_0_1080_1920_1920_1080_1920_1080",
+    "status": "0011",  # 不知道在干啥
+}
+"""浏览器环境模拟"""
+
+DES_RULE = {
+    "appId": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "uy7mzc4h",
+        "obfuscated_name": "xx",
+    },
+    "box": {
+        "is_encrypt": 0,
+        "obfuscated_name": "jf",
+    },
+    "canvas": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "snrn887t",
+        "obfuscated_name": "yk",
+    },
+    "clientSize": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "cpmjjgsu",
+        "obfuscated_name": "zx",
+    },
+    "organization": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "78moqjfc",
+        "obfuscated_name": "dp",
+    },
+    "os": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "je6vk6t4",
+        "obfuscated_name": "pj",
+    },
+    "platform": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "pakxhcd2",
+        "obfuscated_name": "gm",
+    },
+    "plugins": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "v51m3pzl",
+        "obfuscated_name": "kq",
+    },
+    "pmf": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "2mdeslu3",
+        "obfuscated_name": "vw",
+    },
+    "protocol": {
+        "is_encrypt": 0,
+        "obfuscated_name": "protocol",
+    },
+    "referer": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "y7bmrjlc",
+        "obfuscated_name": "ab",
+    },
+    "res": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "whxqm2a7",
+        "obfuscated_name": "hf",
+    },
+    "rtype": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "x8o2h2bl",
+        "obfuscated_name": "lo",
+    },
+    "sdkver": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "9q3dcxp2",
+        "obfuscated_name": "sc",
+    },
+    "status": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "2jbrxxw4",
+        "obfuscated_name": "an",
+    },
+    "subVersion": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "eo3i2puh",
+        "obfuscated_name": "ns",
+    },
+    "svm": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "fzj3kaeh",
+        "obfuscated_name": "qr",
+    },
+    "time": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "q2t3odsk",
+        "obfuscated_name": "nb",
+    },
+    "timezone": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "1uv05lj5",
+        "obfuscated_name": "as",
+    },
+    "tn": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "x9nzj1bp",
+        "obfuscated_name": "py",
+    },
+    "trees": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "acfs0xo4",
+        "obfuscated_name": "pi",
+    },
+    "ua": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "k92crp1t",
+        "obfuscated_name": "bj",
+    },
+    "url": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "y95hjkoo",
+        "obfuscated_name": "cf",
+    },
+    "version": {
+        "is_encrypt": 0,
+        "obfuscated_name": "version",
+    },
+    "vpw": {
+        "cipher": "DES",
+        "is_encrypt": 1,
+        "key": "r9924ab5",
+        "obfuscated_name": "ca",
+    },
+}
+"""DES加密规则"""
+
+
+ENCODINGS = [
+    e
+    for e in dict.fromkeys(
+        ["utf-8", "utf-8-sig", locale.getpreferredencoding(), "gbk", "gb18030"]
+    )
+    if e
+]
+"""编码列表"""
+
+
+CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+"""创建子进程的标志"""
+
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+"""匹配ANSI控制字符的正则表达式"""
+
+TASK_MODE_ZH = {
+    "AutoProxy": "自动代理",
+    "ManualReview": "人工排查",
+    "ScriptConfig": "脚本配置",
+}
+"""任务模式中文映射表"""
+
+EMULATOR_SPLASH_ADS_PATH_BOOK = {
+    "mumu": Path(os.getenv("APPDATA") or "")
+    / "Netease/MuMuPlayer-12.0/data/startupImage",
+    "ldplayer": Path(os.getenv("APPDATA") or "") / "leidian9/cache",
+}
+"""模拟器启动时广告路径"""
