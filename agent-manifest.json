@@ -1,0 +1,173 @@
+{
+  "name": "maa_game_script",
+  "displayName": "MAA 游戏脚本代理",
+  "version": "5.2.0",
+  "description": "通过唤醒 MAA 脚本代理执行游戏任务的 MCP。Agent 可传 preset 中文别名启动 MAA 执行脚本（日常、收基建、肉鸽等），无需手写 tasks——系统从参数自动推断启用任务。",
+  "author": "NagaAgent",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_auto_game.agent",
+    "class": "MAAAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "execute_task",
+        "description": "执行MAA任务。推荐用preset（支持中文别名），也可直接传参数（系统自动推断tasks）。",
+        "parameters": {
+          "_how_to_use": "【推荐】传preset即可，如 preset='收基建'。需要微调时加对应参数覆盖默认值。也可不传preset，直接传参数（如 roguelike_core_char='棘刺'），系统自动启用对应任务。",
+
+          "preset": "预设名或中文别名（推荐）。常用：'日常'、'收基建'、'刷龙门币'、'刷经验'、'剿灭'、'肉鸽'、'生息演算'、'公招'、'商店'、'肉鸽刷投资'、'肉鸽打Boss'、'加急公招'、'公招保底'、'日常不打'。用 list_presets 查看全部。",
+          "script_profile": "脚本配置ID（可选，与preset二选一）",
+          "queue": "脚本配置ID列表（可选），顺序执行多个配置",
+
+          "_common_params": "=== 常用覆盖参数（按需传，不传用默认值）===",
+          "medicine_count": "理智药数量，默认0",
+          "stage": "关卡名，默认1-7",
+          "client_type": "Official / Bilibili",
+          "account_name": "账号名（多账号时用）",
+          "post_action": "任务后动作：NoAction / ExitGame / ExitEmulator",
+          "emulator_profile": "模拟器配置ID",
+
+          "_roguelike_common": "=== 肉鸽常用参数（有策略预设可替代：'肉鸽刷投资'、'肉鸽打Boss'、'刷藏品'）===",
+          "roguelike_theme": "Phantom/Mizuki/Sami/Sarkaz/JieGarden，默认JieGarden",
+          "roguelike_mode": "Exp/Collectible/Investment，默认Exp",
+          "roguelike_core_char": "核心干员名，如'棘刺'",
+          "roguelike_difficulty": "难度等级，默认自动最高",
+          "roguelike_stop_at_final_boss": "到Boss停，默认false",
+          "roguelike_stop_when_deposit_full": "存款满停，默认false",
+
+          "_recruit_common": "=== 公招常用参数（有策略预设：'加急公招'、'公招保底'）===",
+          "recruit_use_expedited": "使用加急许可，默认false",
+          "recruit_max_times": "最大次数，默认4",
+          "recruit_level5_choose": "选5/6星，默认false",
+
+          "_advanced_params": "=== 高级参数（大多数场景不需要，全部有合理默认值）=== 肉鸽扩展：roguelike_squad/roguelike_squad_collectible/roguelike_roles/roguelike_investment/roguelike_invest_count/roguelike_use_support/roguelike_start_with_elite_two/roguelike_refresh_trader_with_dice/roguelike_squad_is_foldartal/roguelike_start_with_seed/roguelike_seed/roguelike_find_playtime_target/roguelike_expected_collapsal_paradigms 等。生息演算：reclamation_theme/reclamation_mode/reclamation_tool_to_craft/reclamation_max_craft_count 等。基建：infrast_uses_of_drones(Money/Combat/Power)/infrast_dorm_threshold(0-100)/infrast_rooms(房间名列表如['Mfg','Trade']) 等。商店：mall_first_list(分号分隔)/mall_black_list/mall_only_buy_discount/mall_credit_fight 等。奖励：award_mail/award_free_gacha/award_orundum 等。作战：fight_times_limit/fight_drop_id/fight_drop_count/fight_series/fight_is_dr_grandet 等。所有参数名与 MAATaskConfig dataclass 字段一一对应。"
+        },
+        "examples": [
+          {
+            "description": "完整日常",
+            "payload": "{\"tool_name\":\"execute_task\",\"preset\":\"日常\"}"
+          },
+          {
+            "description": "收基建",
+            "payload": "{\"tool_name\":\"execute_task\",\"preset\":\"收基建\"}"
+          },
+          {
+            "description": "刷龙门币20瓶药",
+            "payload": "{\"tool_name\":\"execute_task\",\"preset\":\"刷龙门币\",\"medicine_count\":20}"
+          },
+          {
+            "description": "肉鸽刷投资（策略预设，无需手动组合参数）",
+            "payload": "{\"tool_name\":\"execute_task\",\"preset\":\"肉鸽刷投资\"}"
+          },
+          {
+            "description": "肉鸽指定核心干员",
+            "payload": "{\"tool_name\":\"execute_task\",\"preset\":\"肉鸽\",\"roguelike_core_char\":\"棘刺\"}"
+          },
+          {
+            "description": "加急公招（策略预设）",
+            "payload": "{\"tool_name\":\"execute_task\",\"preset\":\"加急公招\"}"
+          },
+          {
+            "description": "纯参数模式（无需写tasks，自动推断启用Roguelike）",
+            "payload": "{\"tool_name\":\"execute_task\",\"roguelike_core_char\":\"棘刺\",\"roguelike_stop_at_final_boss\":true}"
+          },
+          {
+            "description": "多账号队列",
+            "payload": "{\"tool_name\":\"execute_task\",\"queue\":[\"main_account\",\"sub_account\"]}"
+          }
+        ]
+      },
+      {
+        "command": "configure_maa",
+        "description": "配置MAA路径、连接地址、模拟器、脚本配置、定时任务。首次使用或更改配置时调用。",
+        "parameters": {
+          "maa_path": "MAA安装路径（必须）。例：D:\\MaaAssistantArknights",
+          "connect_address": "ADB连接地址（可选，会自动发现）。例：127.0.0.1:16384",
+          "callback_url": "通知回调URL（可选）",
+          "emulator_profiles": "模拟器配置字典（可选）",
+          "script_profiles": "脚本配置字典（可选）",
+          "schedules": "定时任务字典（可选）"
+        },
+        "examples": [
+          {
+            "description": "配置MAA路径",
+            "payload": "{\"tool_name\":\"configure_maa\",\"maa_path\":\"D:\\\\MaaAssistantArknights\"}"
+          }
+        ]
+      },
+      {
+        "command": "get_status",
+        "description": "获取MAA当前状态（配置、进度、设备、调度器）。",
+        "parameters": {},
+        "examples": [{"description": "查询状态", "payload": "{\"tool_name\":\"get_status\"}"}]
+      },
+      {
+        "command": "stop_task",
+        "description": "停止当前MAA任务。",
+        "parameters": {},
+        "examples": [{"description": "停止", "payload": "{\"tool_name\":\"stop_task\"}"}]
+      },
+      {
+        "command": "list_presets",
+        "description": "列出所有可用预设（含策略预设和中文别名）。",
+        "parameters": {},
+        "examples": [{"description": "查看预设", "payload": "{\"tool_name\":\"list_presets\"}"}]
+      },
+      {
+        "command": "get_task_catalog",
+        "description": "获取任务目录+上次参数。返回所有任务类型的参数schema和last_used值，供AI规划阶段展示给用户确认。",
+        "parameters": {},
+        "examples": [{"description": "获取任务目录", "payload": "{\"tool_name\":\"get_task_catalog\"}"}]
+      },
+      {
+        "command": "start_emulator",
+        "description": "预启动模拟器。AI在规划阶段并行调用，提前启动模拟器节省等待时间。",
+        "parameters": {
+          "emulator_profile": "模拟器配置ID（可选，默认'default'）"
+        },
+        "examples": [
+          {"description": "启动默认模拟器", "payload": "{\"tool_name\":\"start_emulator\"}"},
+          {"description": "启动指定模拟器", "payload": "{\"tool_name\":\"start_emulator\",\"emulator_profile\":\"default\"}"}
+        ]
+      }
+    ]
+  },
+  "usage": {
+    "workflow": [
+      "1. configure_maa 配置MAA路径（仅首次）",
+      "2. 收到游戏自动化请求时，先调用 get_task_catalog 获取任务目录和上次参数",
+      "3. 同时调用 start_emulator 提前启动模拟器",
+      "4. 根据意图选择任务，用 last_used 值填充默认参数，输出计划请用户确认",
+      "5. 用户确认或修改后，调用 execute_task 执行",
+      "6. get_status 查看进度 / stop_task 停止任务"
+    ],
+    "ai_decision_guide": [
+      "收到游戏自动化请求时，先调用 get_task_catalog 获取任务目录和上次参数",
+      "同时调用 start_emulator 提前启动模拟器",
+      "根据意图选择任务，用 last_used 值填充默认参数，输出计划请用户确认",
+      "用户确认或修改后，调用 execute_task 执行",
+      "切勿跳过确认直接执行"
+    ],
+    "ai_interaction_examples": [
+      {
+        "user_says": "帮我清理一下日常然后打水月肉鸽",
+        "ai_should": "1) 调用 get_task_catalog + start_emulator; 2) 输出计划: '任务计划: 1.完整日常 2.水月肉鸽-刷经验, 确认执行?'; 3) 用户确认后调用 execute_task"
+      },
+      {"user_says": "帮我收一下基建", "ai_should": "调用 get_task_catalog → 输出计划 → 确认后 preset='收基建'"},
+      {"user_says": "做日常", "ai_should": "调用 get_task_catalog → 输出计划 → 确认后 preset='日常'"},
+      {"user_says": "刷20瓶药的龙门币", "ai_should": "输出计划含medicine_count=20 → 确认后 preset='刷龙门币', medicine_count=20"},
+      {"user_says": "肉鸽用棘刺当核心打到boss停", "ai_should": "输出计划含核心干员=棘刺 → 确认后 preset='肉鸽打Boss', roguelike_core_char='棘刺'"},
+      {"user_says": "肉鸽刷投资", "ai_should": "输出计划 → 确认后 preset='肉鸽刷投资'"},
+      {"user_says": "日常不要刷理智", "ai_should": "输出计划 → 确认后 preset='日常不打'"},
+      {"user_says": "先跑主号再跑小号", "ai_should": "输出计划 → 确认后 queue=['main_account','sub_account']"}
+    ]
+  },
+  "error_handling": {
+    "config_missing": "返回错误+配置示例，引导用configure_maa",
+    "preset_not_found": "返回可用预设列表",
+    "task_failed": "返回详细原因（路径/模拟器/ADB）",
+    "auto_discovery": "未配置连接地址时自动扫描模拟器"
+  }
+}
