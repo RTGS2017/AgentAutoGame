@@ -5,7 +5,7 @@
   "emulator_profiles": {
     "default": {
       "type": "mumu",
-      "path": "C:\\path\\to\\MuMuManager.exe",
+      "path": "",
       "index": "0"
     }
   },
