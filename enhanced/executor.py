@@ -289,6 +289,7 @@ class MAAExecutionResult:
     tasks_completed: List[str] = field(default_factory=list)
     tasks_failed: List[str] = field(default_factory=list)
     restart_count: int = 0
+    execution_events: List[str] = field(default_factory=list)
 
 
 class EnhancedMAAExecutor:
@@ -333,6 +334,7 @@ class EnhancedMAAExecutor:
         self.wait_event = asyncio.Event()
         self.current_status = "未运行"
         self._last_forwarded_line_count = 0  # 已转发到前端的日志行数
+        self._execution_events: List[str] = []  # 重要执行事件（用于返回给 AI）
 
     async def execute(self) -> MAAExecutionResult:
         """执行 MAA 任务"""
@@ -392,7 +394,17 @@ class EnhancedMAAExecutor:
             if self.config.restore_after_run and self.backup_dir:
                 await self._restore_config()
 
-            # 5. 通知结果
+            # 5. 构建完成/失败任务列表
+            if final_status == "success":
+                # MAA 报告全部完成时，所有启用的任务都算已完成
+                completed_tasks = list(self.task_dict.keys())
+                failed_tasks = []
+            else:
+                # 非成功状态下，按日志匹配结果划分
+                completed_tasks = [t for t, done in self.task_dict.items() if not done]
+                failed_tasks = [t for t, done in self.task_dict.items() if done]
+
+            # 6. 通知结果
             result_msg = f"MAA 任务{'完成' if final_status == 'success' else '失败'}: {final_message}"
             if self.notifier:
                 self.notifier.notify_result(result_msg)
@@ -404,9 +416,10 @@ class EnhancedMAAExecutor:
                 end_time=end_time,
                 duration=(end_time - start_time).total_seconds(),
                 logs=self.log_monitor.get_logs() if self.log_monitor else [],
-                tasks_completed=[t for t, done in self.task_dict.items() if not done],
-                tasks_failed=[t for t, done in self.task_dict.items() if done],
+                tasks_completed=completed_tasks,
+                tasks_failed=failed_tasks,
                 restart_count=restart_count,
+                execution_events=self._condense_events(),
             )
 
         except Exception as e:
@@ -421,6 +434,7 @@ class EnhancedMAAExecutor:
                 duration=(datetime.now() - start_time).total_seconds(),
                 logs=[],
                 restart_count=restart_count,
+                execution_events=self._condense_events(),
             )
 
         finally:
@@ -776,6 +790,7 @@ class EnhancedMAAExecutor:
         self.wait_event.clear()
         self.task_dict = self.config.tasks.copy()
         self._last_forwarded_line_count = 0
+        self._execution_events = []
 
         # 在启动前清理所有残留 MAA 进程（防止 "无法同时创建多个实例"）
         killed = self._kill_all_maa_processes()
@@ -846,6 +861,42 @@ class EnhancedMAAExecutor:
         "资源版本",
     ]
 
+    # 重要事件关键字 — 匹配的日志行将被收集，在任务结束后返回给 AI 作为上下文
+    _EVENT_KEYWORDS = [
+        "完成任务",           # Task completion
+        "任务出错",           # Task error
+        "开始任务",           # Task start
+        "当前关卡",           # Current stage
+        "作战完成",           # Fight completed
+        "代理指挥",           # Auto-deploy
+        "理智",              # Sanity
+        "合成玉",            # Orundum
+        "龙门币",            # LMD
+        "公招",              # Recruitment
+        "基建",              # Infrastructure
+        "换班",              # Shift change
+        "收获",              # Harvest/collect
+        "线索",              # Clue
+        "剿灭",              # Annihilation
+        "肉鸽",              # Roguelike
+        "层",               # Floor (roguelike)
+        "Boss",             # Boss encounter
+        "投资",              # Investment (roguelike)
+        "源石锭",            # Originium ingot
+        "坍缩范式",          # Collapsal paradigm
+        "招募",              # Recruit
+        "★",                # Star rating (recruit results)
+        "信用",              # Credits
+        "购买",              # Purchase
+        "奖励",              # Reward
+        "生息演算",          # Reclamation
+        "演算",              # Calculation
+        "探索",              # Exploration
+        "难度",              # Difficulty
+        "获得",              # Obtained
+        "掉落",              # Drop
+    ]
+
     async def _log_callback(self, logs: List[str], latest_time: datetime) -> None:
         """日志回调 - 解析日志判断状态 + 实时转发日志到前端"""
         log_text = "".join(logs)
@@ -873,9 +924,16 @@ class EnhancedMAAExecutor:
                     display_text = stripped[content_start + 1:].strip()
                     if not display_text:
                         continue
+            # 收集重要事件用于 AI 上下文
+            if any(kw in stripped for kw in self._EVENT_KEYWORDS):
+                self._execution_events.append(display_text)
             self._notify(f"MAA: {display_text}", auto_hide_ms=8000)
 
         # ---- 判断状态并推送通知 ----
+        # 如果已经判定结束，不再重复判断（防止后续回调覆盖 success 状态）
+        if self.wait_event.is_set():
+            return
+
         if "未选择任务" in log_text:
             self.current_status = "未选择任务"
             self._notify("MAA: 未选择任务")
@@ -885,16 +943,13 @@ class EnhancedMAAExecutor:
             self._notify("MAA: 登录失败")
             self.wait_event.set()
         elif "任务已全部完成！" in log_text:
+            # 记录各任务的完成情况（仅供参考）
             for en_task, zh_task in zip(MAA_TASKS, MAA_TASKS_ZH):
                 if f"完成任务: {zh_task}" in log_text:
                     self.task_dict[en_task] = False
-
-            if any(self.task_dict.values()):
-                self.current_status = "部分任务失败"
-                self._notify("MAA: 部分任务失败")
-            else:
-                self.current_status = "success"
-                self._notify("MAA: 任务已全部完成")
+            # MAA 自身报告"任务已全部完成"，以此为准，标记为成功
+            self.current_status = "success"
+            self._notify("MAA: 任务已全部完成")
             self.wait_event.set()
         elif "请 ｢检查连接设置｣" in log_text:
             self.current_status = "ADB连接异常"
@@ -904,14 +959,31 @@ class EnhancedMAAExecutor:
             self.current_status = "未检测到模拟器"
             self._notify("MAA: 未检测到模拟器")
             self.wait_event.set()
-        elif "已停止" in log_text:
+        elif "全部任务 已停止" in log_text or "LinkStart 已停止" in log_text:
+            # 仅匹配 MAA 明确的任务中止日志，避免匹配到子任务中的 "已停止" 字样
             self.current_status = "任务中止"
             self._notify("MAA: 任务已停止")
             self.wait_event.set()
         elif not await self.process_manager.is_running():
-            self.current_status = "进程退出"
-            self._notify("MAA: 进程已退出")
+            # 进程已退出 — 先检查日志中是否有完成标记，区分正常退出和异常退出
+            if "任务已全部完成" in log_text:
+                for en_task, zh_task in zip(MAA_TASKS, MAA_TASKS_ZH):
+                    if f"完成任务: {zh_task}" in log_text:
+                        self.task_dict[en_task] = False
+                self.current_status = "success"
+                self._notify("MAA: 任务完成，进程已正常退出")
+            else:
+                self.current_status = "进程异常退出"
+                self._notify("MAA: 进程异常退出")
             self.wait_event.set()
+
+    def _condense_events(self, max_events: int = 50) -> List[str]:
+        """压缩执行事件列表，保留最有价值的信息供 AI 上下文使用"""
+        events = self._execution_events
+        if len(events) <= max_events:
+            return events.copy()
+        # 保留开头 10 条（任务启动上下文）+ 末尾 39 条（最终结果）
+        return events[:10] + ["... (省略中间过程) ..."] + events[-(max_events - 11):]
 
     def _parse_final_status(self) -> tuple:
         """解析最终状态
@@ -919,17 +991,22 @@ class EnhancedMAAExecutor:
         返回值含义:
         - "success": 任务完成
         - "failed":  可重试的失败（如 ADB 连接异常）
-        - "error":   不可重试的错误（进程退出、用户中止等）
+        - "error":   不可重试的错误（用户中止、配置错误等）
         """
         if self.current_status == "success":
-            return "success", "任务完成"
+            return "success", "所有任务已成功完成"
         elif self.current_status in ("ADB连接异常", "未检测到模拟器"):
-            return "failed", self.current_status
-        elif self.current_status in ("登录失败", "未选择任务",
-                                     "进程退出", "任务中止"):
-            return "error", self.current_status
+            return "failed", f"连接失败: {self.current_status}，请检查模拟器是否已启动并连接"
+        elif self.current_status == "登录失败":
+            return "error", "游戏登录失败（任务出错: 开始唤醒），请检查账号或客户端状态"
+        elif self.current_status == "未选择任务":
+            return "error", "MAA 未检测到已启用的任务，请检查任务配置是否正确"
+        elif self.current_status == "任务中止":
+            return "error", "任务被用户手动中止"
+        elif self.current_status == "进程异常退出":
+            return "error", "MAA 进程异常退出（可能崩溃），任务未完成"
         else:
-            return "failed", self.current_status
+            return "failed", f"任务未能完成: {self.current_status}"
 
     async def _set_bilibili_agreement(self, agree: bool) -> None:
         """设置 B服协议"""

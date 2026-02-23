@@ -1,12 +1,12 @@
+# 本地配置（含敏感路径，不提交）
+.agent_maa_config.json
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-
-# 配置文件（运行时生成）
-.agent_maa_config.json
 
 # IDE
 .vscode/

@@ -347,15 +347,51 @@ class MAAAgent:
         if result.status == "success":
             self._save_last_params(tasks, params)
 
+        # 构建对 AI 友好的结构化返回
+        completed_str = ", ".join(result.tasks_completed) if result.tasks_completed else "无"
+        failed_str = ", ".join(result.tasks_failed) if result.tasks_failed else "无"
+        duration_str = f"{result.duration:.0f}秒"
+
+        if result.status == "success":
+            message = (
+                f"任务已成功完成，耗时 {duration_str}。"
+                f"完成的任务: {completed_str}。"
+            )
+            if result.restart_count > 0:
+                message += f"（过程中自动重启了 {result.restart_count} 次）"
+        elif result.status == "timeout":
+            message = (
+                f"任务执行超时（已运行 {duration_str}），已自动终止 MAA。"
+                f"已完成: {completed_str}；未完成: {failed_str}。"
+                f"如果是长时间任务（如肉鸽），可以考虑增加 timeout_minutes 参数。"
+            )
+        elif result.status == "failed":
+            message = (
+                f"任务执行失败: {result.message}。"
+                f"已完成: {completed_str}；未完成: {failed_str}。"
+                f"建议: 检查模拟器连接状态后重试。"
+            )
+        else:
+            message = (
+                f"任务出错: {result.message}。"
+                f"已完成: {completed_str}；未完成: {failed_str}。"
+            )
+
+        # 附加执行过程记录，让 AI 能了解任务执行细节
+        if result.execution_events:
+            events_text = "\n".join(f"  - {e}" for e in result.execution_events)
+            message += f"\n\n执行过程记录:\n{events_text}"
+
         return {
             "status": result.status,
-            "message": result.message,
+            "message": message,
             "data": {
                 "duration": f"{result.duration:.1f}s",
                 "tasks_completed": result.tasks_completed,
                 "tasks_failed": result.tasks_failed,
                 "restart_count": result.restart_count,
                 "log_lines": len(result.logs),
+                "execution_events": result.execution_events,
             },
         }
 
@@ -374,10 +410,22 @@ class MAAAgent:
             r = await self._execute_single(params, maa_path)
             results.append({"profile": pid, **r})
 
-        all_ok = all(r.get("status") == "success" for r in results)
+        succeeded = [r["profile"] for r in results if r.get("status") == "success"]
+        failed = [r["profile"] for r in results if r.get("status") != "success"]
+        all_ok = len(failed) == 0
+
+        if all_ok:
+            message = f"队列全部执行成功，共 {len(results)} 个配置: {', '.join(succeeded)}。"
+        else:
+            message = (
+                f"队列执行完成（{len(results)} 个配置），"
+                f"成功: {', '.join(succeeded) if succeeded else '无'}；"
+                f"失败: {', '.join(failed)}。"
+            )
+
         return {
-            "status": "success" if all_ok else "partial_failure",
-            "message": f"队列执行完成 ({len(results)} 个配置)",
+            "status": "success" if all_ok else "error",
+            "message": message,
             "data": {"results": results},
         }
 
@@ -473,12 +521,28 @@ class MAAAgent:
                 },
             }
 
-        all_success = all(r["status"] == "success" for r in results)
-        messages = [r["message"] for r in results]
+        success_items = [r for r in results if r["status"] == "success"]
+        failed_items = [r for r in results if r["status"] != "success"]
+
+        if failed_items and not success_items:
+            # 全部失败
+            status = "error"
+            summary = "配置失败: " + "; ".join(r["message"] for r in failed_items)
+        elif failed_items:
+            # 部分成功部分失败 — 仍标记为 success，在 message 中说明哪些失败
+            status = "success"
+            summary = (
+                "配置部分完成。成功: " + "; ".join(r["message"] for r in success_items) +
+                "。失败: " + "; ".join(r["message"] for r in failed_items)
+            )
+        else:
+            # 全部成功
+            status = "success"
+            summary = "配置已全部成功完成。" + "; ".join(r["message"] for r in results)
 
         return {
-            "status": "success" if all_success else "error",
-            "message": "\n".join(messages),
+            "status": status,
+            "message": summary,
             "data": {
                 "results": results,
                 "current_config": {
@@ -664,9 +728,9 @@ class MAAAgent:
             profiles = self.config.get_emulator_profiles()
             if not profiles:
                 return {
-                    "status": "no_config",
-                    "message": "未配置模拟器，执行任务时将自动发现",
-                    "data": {},
+                    "status": "success",
+                    "message": "未配置模拟器，执行任务时将自动发现设备，无需手动启动。",
+                    "data": {"detail": "no_emulator_configured"},
                 }
             emu_profile_id = next(iter(profiles))
             emu_profile = profiles[emu_profile_id]
@@ -683,9 +747,9 @@ class MAAAgent:
             if status == DeviceStatus.ONLINE:
                 adb_addr = await self.emulator_manager.emulators[emu_profile_id].get_adb_address(index)
                 return {
-                    "status": "already_running",
-                    "message": f"模拟器 {emu_profile_id} 已在运行",
-                    "data": {"adb_address": adb_addr},
+                    "status": "success",
+                    "message": f"模拟器 {emu_profile_id} 已在运行，无需重复启动。",
+                    "data": {"adb_address": adb_addr, "detail": "already_running"},
                 }
         except Exception:
             pass
@@ -694,10 +758,11 @@ class MAAAgent:
         try:
             self.notifier.notify_status(f"正在启动模拟器 {emu_profile_id}...", auto_hide_ms=5000)
             info = await self.emulator_manager.start(emu_profile_id, index)
+            is_ready = info.status == DeviceStatus.ONLINE
             return {
-                "status": "ready" if info.status == DeviceStatus.ONLINE else "starting",
-                "message": f"模拟器 {emu_profile_id} {'已就绪' if info.status == DeviceStatus.ONLINE else '正在启动'}",
-                "data": {"adb_address": info.adb_address},
+                "status": "success",
+                "message": f"模拟器 {emu_profile_id} {'已就绪，可以执行任务。' if is_ready else '正在启动中，执行任务时会自动等待就绪。'}",
+                "data": {"adb_address": info.adb_address, "detail": "ready" if is_ready else "starting"},
             }
         except Exception as e:
             return {

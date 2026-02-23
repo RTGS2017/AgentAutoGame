@@ -187,7 +187,8 @@ AI 发出指令（如 preset="收基建"）
 项目根目录/
   agent.py                     # MAAAgent — 5 个 MCP 工具入口
   agent-manifest.json           # MCP 插件清单（分层精简版）
-  .agent_maa_config.json        # 持久化配置（运行时生成）
+  .agent_maa_config.example.json  # 配置模板（复制为 .agent_maa_config.json 并填写本地路径）
+  .agent_maa_config.json        # 持久化配置（运行时生成，已加入 .gitignore 不提交）
 
   core/
     config.py                   # MAAConfig — JSON 配置读写
@@ -219,7 +220,7 @@ AI 发出指令（如 preset="收基建"）
 
 ## 配置 & 定时调度
 
-首次使用配置 MAA 路径（其余自动发现）：
+首次使用：将 `.agent_maa_config.example.json` 复制为 `.agent_maa_config.json`，填写本地 MAA 路径和模拟器路径。配置 MAA 路径（其余可自动发现）：
 
 ```json
 {"tool_name": "configure_maa", "maa_path": "D:\\MaaAssistantArknights"}
